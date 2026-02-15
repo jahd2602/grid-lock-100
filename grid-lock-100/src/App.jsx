@@ -3,7 +3,8 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   signInAnonymously,
-  onAuthStateChanged
+  onAuthStateChanged,
+  signOut
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -150,45 +151,58 @@ export default function App() {
 
   // --- Matchmaking (Multiplayer) ---
   const findMatch = async () => {
-    if (!user) return;
+    console.log("findMatch: Starting matchmaking found...");
+    if (!user) {
+      console.log("findMatch: No user found, aborting.");
+      return;
+    }
+
     setIsSolo(false);
     setGameStatus('finding');
+    console.log("findMatch: Status set to finding. UserId:", user.uid);
 
     try {
       const matchesRef = collection(db, 'artifacts', appId, 'public', 'data', 'matches');
+      console.log("findMatch: Querying for waiting matches in", matchesRef.path);
 
       // 1. Try to join an existing waiting match
       const q = query(matchesRef, where('status', '==', 'waiting'), limit(1));
       const querySnapshot = await getDocs(q);
+      console.log("findMatch: Query Snapshot size:", querySnapshot.size);
 
       if (!querySnapshot.empty) {
         const matchDoc = querySnapshot.docs[0];
         const matchData = matchDoc.data();
+        console.log("findMatch: Found waiting match:", matchDoc.id, matchData);
 
         // Prevent joining own match if revisited
         if (matchData.p1.uid === user.uid) {
+          console.log("findMatch: User is already P1 in this match. Rejoining as P1.");
           setMatchId(matchDoc.id);
           setPlayerRole('p1');
           return;
         }
 
+        console.log("findMatch: Joining as P2...");
         await updateDoc(doc(matchesRef, matchDoc.id), {
           'p2.uid': user.uid,
           status: 'playing',
           startTime: serverTimestamp()
         });
+        console.log("findMatch: Joined successfully.");
 
         setMatchId(matchDoc.id);
         setPlayerRole('p2');
       } else {
         // 2. Create new match
+        console.log("findMatch: No waiting matches found. Creating new match...");
         const newMatchRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'matches'));
 
         // Serialize pieces before saving to avoid nested array error
         const p1Pieces = serializePieces(generatePieces(3));
         const p2Pieces = serializePieces(generatePieces(3));
 
-        await setDoc(newMatchRef, {
+        const newMatchData = {
           p1: {
             uid: user.uid,
             gridStr: gridToString(createEmptyGrid()),
@@ -208,7 +222,11 @@ export default function App() {
           winner: null,
           status: 'waiting',
           createdAt: serverTimestamp()
-        });
+        };
+
+        await setDoc(newMatchRef, newMatchData);
+        console.log("findMatch: Created new match:", newMatchRef.id);
+
         setMatchId(newMatchRef.id);
         setPlayerRole('p1');
       }
@@ -216,6 +234,13 @@ export default function App() {
       console.error("Matchmaking error:", e);
       setGameStatus('menu');
     }
+  };
+
+  // --- Debug: Reset Identity ---
+  const resetIdentity = async () => {
+    await signOut(auth);
+    await signInAnonymously(auth);
+    window.location.reload();
   };
 
   // --- Unified Update Handler ---
@@ -310,6 +335,13 @@ export default function App() {
                 <Target className="w-5 h-5 text-emerald-400" />
                 SOLO TRAINING
               </span>
+            </button>
+
+            <button
+              onClick={resetIdentity}
+              className="mt-4 text-xs text-slate-600 hover:text-slate-400 underline"
+            >
+              DEBUG: New Player ID
             </button>
           </div>
         </div>
