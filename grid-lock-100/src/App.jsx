@@ -29,14 +29,14 @@ import {
 } from 'lucide-react';
 
 // --- Firebase Config & Init ---
-// TODO: Replace with your actual Firebase config
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyC7Gm_3Lie_unVXaw6s7wVp2urxt7RAyJ0",
+  authDomain: "gridlock100.firebaseapp.com",
+  projectId: "gridlock100",
+  storageBucket: "gridlock100.firebasestorage.app",
+  messagingSenderId: "295310640766",
+  appId: "1:295310640766:web:f1b85dd7a46b28e3d27a2f",
+  measurementId: "G-JVY8NNNLHQ"
 };
 
 const app = initializeApp(firebaseConfig);
