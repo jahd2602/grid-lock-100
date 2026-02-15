@@ -26,7 +26,10 @@ import {
   Lock,
   Users,
   RotateCcw,
-  Target
+  Target,
+  WifiOff,
+  Signal,
+  SignalLow
 } from 'lucide-react';
 
 // --- Firebase Config & Init ---
@@ -130,7 +133,8 @@ export default function App() {
         score: 0,
         pieces: generatePieces(3),
         attackIncoming: null,
-        lockedUntil: 0
+        lockedUntil: 0,
+        lastSeen: Date.now()
       },
       p2: {
         uid: 'bot',
@@ -138,7 +142,8 @@ export default function App() {
         score: 0,
         pieces: [], // Spectator empty for bot
         attackIncoming: null,
-        lockedUntil: 0
+        lockedUntil: 0,
+        lastSeen: Date.now()
       },
       winner: null,
       status: 'playing',
@@ -209,7 +214,8 @@ export default function App() {
             score: 0,
             pieces: p1Pieces,
             attackIncoming: null,
-            lockedUntil: 0
+            lockedUntil: 0,
+            lastSeen: serverTimestamp()
           },
           p2: {
             uid: null,
@@ -217,7 +223,8 @@ export default function App() {
             score: 0,
             pieces: p2Pieces,
             attackIncoming: null,
-            lockedUntil: 0
+            lockedUntil: 0,
+            lastSeen: serverTimestamp()
           },
           winner: null,
           status: 'waiting',
@@ -337,12 +344,12 @@ export default function App() {
               </span>
             </button>
 
-            <button
+            {/* <button
               onClick={resetIdentity}
               className="mt-4 text-xs text-slate-600 hover:text-slate-400 underline"
             >
               DEBUG: New Player ID
-            </button>
+            </button> */}
           </div>
         </div>
       )}
@@ -389,8 +396,55 @@ function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSo
   const [flash, setFlash] = useState(false);
   const [clearingCells, setClearingCells] = useState(new Set()); // Set of "r-c" strings
   const [scoreParticles, setScoreParticles] = useState([]); // Array of {id, x, y, value}
+  const [connectionIssue, setConnectionIssue] = useState(false);
 
   const gridRef = useRef(null);
+
+  // --- Heartbeat & Offline Detection ---
+  useEffect(() => {
+    if (isSolo || gameState.status !== 'playing') return;
+
+    // 1. Send Heartbeat
+    const heartbeatInterval = setInterval(() => {
+      onGameUpdate({
+        [`${playerRole}.lastSeen`]: serverTimestamp()
+      });
+    }, 1000); // Send every 1s
+
+    // 2. Check Opponent Status
+    const checkInterval = setInterval(() => {
+      if (gameState.winner) return; // Don't check if game over
+
+      const opponentLastSeen = oppData.lastSeen;
+      if (!opponentLastSeen) return;
+
+      // Firestore timestamp to millis
+      const lastSeenMillis = opponentLastSeen.toMillis ? opponentLastSeen.toMillis() : opponentLastSeen;
+      const timeSince = Date.now() - lastSeenMillis;
+
+      // Connection Issue Warning (> 5s)
+      if (timeSince > 5000) {
+        setConnectionIssue(true);
+      } else {
+        setConnectionIssue(false);
+      }
+
+      // Disconnect (> 10s)
+      if (timeSince > 10000) {
+        // Declare victory if I am still connected
+        console.log("Opponent timed out! Claiming victory.");
+        onGameUpdate({
+          status: 'finished',
+          winner: userId
+        });
+      }
+    }, 500); // Check faster (every 500ms) for responsiveness
+
+    return () => {
+      clearInterval(heartbeatInterval);
+      clearInterval(checkInterval);
+    };
+  }, [isSolo, gameState.status, gameState.winner, oppData.lastSeen, playerRole]);
 
   // Sync incoming attacks (Locks)
   useEffect(() => {
@@ -762,7 +816,16 @@ function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSo
       {/* --- Spectator Zone (Top) --- */}
       {!isSolo && (
         <div className="flex-none p-4 flex justify-end relative">
-          <div className="bg-slate-900 p-2 rounded-lg border border-slate-700 shadow-xl opacity-80 scale-90 origin-top-right">
+          <div className="bg-slate-900 p-2 rounded-lg border border-slate-700 shadow-xl opacity-80 scale-90 origin-top-right relative">
+
+            {/* Connection Issue Overlay */}
+            {connectionIssue && (
+              <div className="absolute inset-0 z-20 bg-slate-950/80 flex flex-col items-center justify-center rounded-lg animate-pulse backdrop-blur-sm">
+                <SignalLow className="w-8 h-8 text-yellow-500 mb-1" />
+                <span className="text-[10px] text-yellow-500 font-bold uppercase tracking-wider">Reconnecting</span>
+              </div>
+            )}
+
             <div className="grid grid-cols-8 gap-[1px] bg-slate-800 border border-slate-800 mb-2 w-[120px] h-[120px]">
               {stringToGrid(oppData.gridStr).map((row, r) => (
                 row.map((cell, c) => (
@@ -792,7 +855,13 @@ function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSo
                 <>
                   <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4 animate-bounce" />
                   <h2 className="text-4xl font-black text-white mb-2">VICTORY</h2>
-                  <p className="text-cyan-400">Target Reached!</p>
+                  <p className="text-cyan-400">
+                    {isSolo ? 'Target Reached!' : (
+                      gameState.status === 'finished' && gameState.winner === userId
+                        ? 'You Won!'
+                        : 'Target Reached!'
+                    )}
+                  </p>
                 </>
               ) : (
                 <>
@@ -800,6 +869,13 @@ function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSo
                   <h2 className="text-4xl font-black text-white mb-2">DEFEAT</h2>
                   <p className="text-slate-400">Opponent claimed the grid.</p>
                 </>
+              )}
+
+              {!isSolo && gameState.winner === userId && (
+                <div className="mt-2 text-xs text-slate-500 flex items-center justify-center gap-1">
+                  <WifiOff className="w-3 h-3" />
+                  If opponent disconnects (&gt;10s), you win automatically.
+                </div>
               )}
               <button
                 onClick={() => window.location.reload()}
