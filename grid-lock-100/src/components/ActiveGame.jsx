@@ -48,13 +48,16 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
     const trayRefs = useRef([]);
     const spectatorRef = useRef(null);
 
-    // --- Heartbeat & Offline Detection ---
+    const gameStateRef = useRef(gameState);
+    useEffect(() => {
+        gameStateRef.current = gameState;
+    }, [gameState]);
+
     useEffect(() => {
         const handleKeyPress = (e) => {
             if (e.key.toLowerCase() === 'c' && import.meta.env.DEV) {
                 setLocalGrid(prev => {
                     const newGrid = prev.map(row => [...row]);
-                    // Fill first 3 rows except for the last cell
                     for (let r = 0; r < 3; r++) {
                         for (let c = 0; c < GRID_SIZE - 1; c++) {
                             newGrid[r][c] = 1;
@@ -65,7 +68,6 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
                 });
                 setFlash(true);
                 setTimeout(() => setFlash(false), 200);
-                console.log("Cheat activated: Rows prepped for clear!");
             }
         };
 
@@ -73,26 +75,40 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
         return () => window.removeEventListener('keydown', handleKeyPress);
     }, []);
 
+    // --- Heartbeat & Offline Detection ---
     useEffect(() => {
         if (isSolo || gameState.status !== 'playing') return;
 
         // 1. Send Heartbeat
         const heartbeatInterval = setInterval(() => {
+            console.log(`[Heartbeat] Sending pulse for ${playerRole}...`);
             onGameUpdate({
                 [`${playerRole}.lastSeen`]: serverTimestamp()
             });
-        }, 500); // Send every 500ms
+        }, 1000); // Send every 1s
 
         // 2. Check Opponent Status
         const checkInterval = setInterval(() => {
-            if (gameState.winner) return; // Don't check if game over
+            const currentState = gameStateRef.current;
+            const currentOppData = currentState[opponentRole];
 
-            const opponentLastSeen = oppData.lastSeen;
-            if (!opponentLastSeen) return;
+            console.log(`[Heartbeat] Checking status for ${playerRole}...`);
+            if (currentState.winner) return;
+
+            const opponentLastSeen = currentOppData?.lastSeen;
+            if (!opponentLastSeen) {
+                console.log(`[Heartbeat] Waiting for opponent (${opponentRole}) initial heartbeat...`);
+                return;
+            }
 
             // Firestore timestamp to millis
             const lastSeenMillis = opponentLastSeen.toMillis ? opponentLastSeen.toMillis() : opponentLastSeen;
             const timeSince = Date.now() - lastSeenMillis;
+
+            // Console log tracking
+            if (timeSince > 2000) {
+                console.log(`[Heartbeat] Opponent last seen ${timeSince}ms ago`);
+            }
 
             // Connection Issue Warning (> 5s)
             if (timeSince > 5000) {
@@ -103,8 +119,7 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
 
             // Disconnect (> 10s)
             if (timeSince > 10000) {
-                // Declare victory if I am still connected
-                console.log("Opponent timed out! Claiming victory.");
+                console.error("[Heartbeat] Opponent timed out! Claiming victory.");
                 onGameUpdate({
                     status: 'finished',
                     winner: userId
@@ -116,7 +131,7 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
             clearInterval(heartbeatInterval);
             clearInterval(checkInterval);
         };
-    }, [isSolo, gameState.status, gameState.winner, oppData.lastSeen, playerRole]);
+    }, [isSolo, gameState.status, playerRole, userId, onGameUpdate, opponentRole]);
 
     // Sync incoming attacks (Locks)
     useEffect(() => {

@@ -318,6 +318,7 @@ export default function App() {
     const unsub = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'matches', matchId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
+        // console.log(`[Sync] Match ${matchId} updated. Status: ${data.status}`);
 
         // Hydrate pieces (restore shape matrix) from Firestore data
         if (data.p1?.pieces) data.p1.pieces = hydratePieces(data.p1.pieces);
