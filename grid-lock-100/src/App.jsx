@@ -23,7 +23,7 @@ import {
   Users,
   Target,
   Zap,
-  Lock
+  Rocket
 } from 'lucide-react';
 import ActiveGame from './components/ActiveGame';
 
@@ -341,7 +341,7 @@ export default function App() {
               <p className="text-xs text-slate-400">Clear lines fast to score points.</p>
             </div>
             <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 backdrop-blur-sm">
-              <Lock className="w-6 h-6 text-red-400 mb-2" />
+              <Rocket className="w-6 h-6 text-red-400 mb-2" />
               <h3 className="font-bold">Attack</h3>
               <p className="text-xs text-slate-400">Clear 3+ lines to lock opponent's pieces.</p>
             </div>
