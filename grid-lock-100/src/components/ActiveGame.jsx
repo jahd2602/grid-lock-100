@@ -399,6 +399,12 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
     return (
         <div
             className="h-screen w-full flex flex-col relative overflow-hidden"
+            style={{
+                paddingTop: 'env(safe-area-inset-top)',
+                paddingBottom: 'env(safe-area-inset-bottom)',
+                paddingLeft: 'env(safe-area-inset-left)',
+                paddingRight: 'env(safe-area-inset-right)',
+            }}
             onMouseMove={handleDragMove}
             onTouchMove={handleDragMove}
             onMouseUp={handleDragEnd}

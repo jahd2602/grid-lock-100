@@ -21,7 +21,9 @@ import {
 } from 'firebase/firestore';
 import {
   Users,
-  Target
+  Target,
+  Zap,
+  Lock
 } from 'lucide-react';
 import ActiveGame from './components/ActiveGame';
 
@@ -313,7 +315,14 @@ export default function App() {
   if (!user) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">Authenticating...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-cyan-500 selection:text-white overflow-hidden touch-none">
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-cyan-500 selection:text-white overflow-hidden touch-none"
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+        paddingLeft: 'env(safe-area-inset-left)',
+        paddingRight: 'env(safe-area-inset-right)',
+      }}
+    >
 
       {/* Menu Screen */}
       {gameStatus === 'menu' && (
