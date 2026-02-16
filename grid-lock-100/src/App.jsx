@@ -816,17 +816,17 @@ function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSo
       {/* --- Spectator Zone (Top) --- */}
       {!isSolo && (
         <div className="flex-none p-4 flex justify-end relative">
-          <div className="bg-slate-900 p-2 rounded-lg border border-slate-700 shadow-xl opacity-80 scale-90 origin-top-right relative">
+          <div className="bg-slate-900 p-2 rounded-lg border border-slate-700 shadow-xl opacity-80 relative"> {/* Removed scale-90 */}
 
             {/* Connection Issue Overlay */}
             {connectionIssue && (
               <div className="absolute inset-0 z-20 bg-slate-950/80 flex flex-col items-center justify-center rounded-lg animate-pulse backdrop-blur-sm">
-                <SignalLow className="w-8 h-8 text-yellow-500 mb-1" />
-                <span className="text-[10px] text-yellow-500 font-bold uppercase tracking-wider">Reconnecting</span>
+                <SignalLow className="w-6 h-6 text-yellow-500 mb-1" /> {/* Reduced icon size */}
+                <span className="text-[9px] text-yellow-500 font-bold uppercase tracking-wider">Reconnecting</span> {/* Reduced text size */}
               </div>
             )}
 
-            <div className="grid grid-cols-8 gap-[1px] bg-slate-800 border border-slate-800 mb-2 w-[120px] h-[120px]">
+            <div className="grid grid-cols-8 gap-[1px] bg-slate-800 border border-slate-800 mb-2 w-[100px] h-[100px]"> {/* Reduced from 120px to 100px */}
               {stringToGrid(oppData.gridStr).map((row, r) => (
                 row.map((cell, c) => (
                   <div key={`${r}-${c}`} className={`w-full h-full ${cell ? 'bg-fuchsia-500/80' : 'bg-slate-900'}`} />
@@ -834,10 +834,10 @@ function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSo
               ))}
             </div>
             {/* Opponent Tray Mini */}
-            <div className="flex justify-center gap-1 h-8">
+            <div className="flex justify-center gap-1 h-6"> {/* Reduced from h-8 to h-6 */}
               {oppData.pieces.map((p, i) => (
-                <div key={i} className="w-8 bg-slate-800/50 rounded flex items-center justify-center">
-                  {p && <div className="w-3 h-3 bg-fuchsia-500/50 rounded-sm" />}
+                <div key={i} className="w-6 bg-slate-800/50 rounded flex items-center justify-center"> {/* Reduced from w-8 to w-6 */}
+                  {p && <div className="w-2 h-2 bg-fuchsia-500/50 rounded-sm" />} {/* Reduced from w-3 h-3 to w-2 h-2 */}
                 </div>
               ))}
             </div>
