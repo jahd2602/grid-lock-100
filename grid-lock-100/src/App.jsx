@@ -157,7 +157,7 @@ export default function App() {
   // --- Solo Mode Logic ---
   const startSolo = () => {
     // Attempt fullscreen
-    if (!document.fullscreenElement) {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen().catch(() => { });
       setIsFullscreen(true);
     }
@@ -201,7 +201,7 @@ export default function App() {
     }
 
     // Attempt fullscreen
-    if (!document.fullscreenElement) {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen().catch(() => { });
       setIsFullscreen(true);
     }
@@ -330,9 +330,13 @@ export default function App() {
   // --- Fullscreen Toggle ---
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(err => console.error(err));
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(err => console.error(err));
+      }
     } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(err => console.error(err));
+      if (document.exitFullscreen) {
+        document.exitFullscreen().then(() => setIsFullscreen(false)).catch(err => console.error(err));
+      }
     }
   };
 
