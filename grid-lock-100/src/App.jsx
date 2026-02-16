@@ -128,6 +128,22 @@ export default function App() {
     setGameState(null);
   };
 
+  // --- Matchmaking Heartbeat (P1 waiting) ---
+  useEffect(() => {
+    console.log("[Matchmaking] Heartbeat check:", { gameStatus, matchId, playerRole });
+    if (gameStatus !== 'finding' || !matchId || playerRole !== 'p1') return;
+    console.log("[Matchmaking] Heartbeat interval starting for:", matchId);
+
+    const interval = setInterval(() => {
+      console.log("[Matchmaking] Updating P1 heartbeat...");
+      updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', matchId), {
+        'p1.lastSeen': serverTimestamp()
+      }).catch(err => console.error("Waiting heartbeat failed:", err));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [gameStatus, matchId, playerRole]);
+
   // --- Auth & Init ---
   useEffect(() => {
     const initAuth = async () => {
@@ -199,36 +215,52 @@ export default function App() {
       console.log("findMatch: Querying for waiting matches in", matchesRef.path);
 
       // 1. Try to join an existing waiting match
-      const q = query(matchesRef, where('status', '==', 'waiting'), limit(1));
+      const q = query(matchesRef, where('status', '==', 'waiting'), limit(5));
       const querySnapshot = await getDocs(q);
       console.log("findMatch: Query Snapshot size:", querySnapshot.size);
 
-      if (!querySnapshot.empty) {
-        const matchDoc = querySnapshot.docs[0];
-        const matchData = matchDoc.data();
-        console.log("findMatch: Found waiting match:", matchDoc.id, matchData);
+      let matchToJoin = null;
 
-        // Prevent joining own match if revisited
+      for (const matchDoc of querySnapshot.docs) {
+        const matchData = matchDoc.data();
+
+        // Rejoin own match if applicable
         if (matchData.p1.uid === user.uid) {
-          console.log("findMatch: User is already P1 in this match. Rejoining as P1.");
+          console.log("findMatch: Found own waiting match. Rejoining as P1.");
           setMatchId(matchDoc.id);
           setPlayerRole('p1');
           return;
         }
 
-        console.log("findMatch: Joining as P2...");
-        await updateDoc(doc(matchesRef, matchDoc.id), {
+        // Check if the match creator is still active (heartbeat within 10s)
+        const lastSeen = matchData.p1.lastSeen?.toMillis ? matchData.p1.lastSeen.toMillis() : (matchData.p1.lastSeen || 0);
+        const isStale = (Date.now() - lastSeen) > 10000;
+
+        if (isStale) {
+          console.log(`findMatch: Skipping stale match ${matchDoc.id} (Last seen: ${new Date(lastSeen).toLocaleTimeString()})`);
+          // Silently mark as stale in background
+          updateDoc(doc(matchesRef, matchDoc.id), { status: 'stale' }).catch(() => { });
+          continue;
+        }
+
+        matchToJoin = matchDoc;
+        break;
+      }
+
+      if (matchToJoin) {
+        console.log("findMatch: Attempting handshake as P2 with:", matchToJoin.id);
+        await updateDoc(doc(matchesRef, matchToJoin.id), {
           'p2.uid': user.uid,
-          status: 'playing',
+          'p2.lastSeen': serverTimestamp(),
+          status: 'joining',
           startTime: serverTimestamp()
         });
-        console.log("findMatch: Joined successfully.");
-
-        setMatchId(matchDoc.id);
+        setMatchId(matchToJoin.id);
         setPlayerRole('p2');
+        // We stay in 'finding' status locally until P1 acknowledges and sets status to 'playing'
       } else {
         // 2. Create new match
-        console.log("findMatch: No waiting matches found. Creating new match...");
+        console.log("findMatch: No active matches found. Creating new match...");
         const newMatchRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'matches'));
 
         // Serialize pieces before saving to avoid nested array error
@@ -270,6 +302,23 @@ export default function App() {
       setGameStatus('menu');
     }
   };
+
+  // --- P2 Handshake Timeout ---
+  useEffect(() => {
+    if (gameStatus === 'finding' && playerRole === 'p2' && matchId && gameState?.status === 'joining') {
+      const timer = setTimeout(() => {
+        console.warn(`[Handshake] P1 (${matchId}) failed to respond in 5s. Retrying search...`);
+        // Mark match as stale so we don't hit it again immediately
+        updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', matchId), { status: 'stale' }).catch(() => { });
+        // Reset and retry
+        setMatchId(null);
+        setGameState(null);
+        setPlayerRole(null);
+        findMatch();
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [gameStatus, playerRole, matchId, gameState?.status]);
 
   // --- Debug: Reset Identity ---
   const resetIdentity = async () => {
@@ -319,6 +368,15 @@ export default function App() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         // console.log(`[Sync] Match ${matchId} updated. Status: ${data.status}`);
+
+        // Handshake: If I am P1 and see someone joining, acknowledge it
+        if (playerRole === 'p1' && data.status === 'joining') {
+          console.log("[Handshake] P2 detected. Acknowledging and starting match...");
+          updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', matchId), {
+            status: 'playing',
+            'p1.lastSeen': serverTimestamp()
+          }).catch(err => console.error("Handshake ACK failed:", err));
+        }
 
         // Hydrate pieces (restore shape matrix) from Firestore data
         if (data.p1?.pieces) data.p1.pieces = hydratePieces(data.p1.pieces);

@@ -105,9 +105,14 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
             const lastSeenMillis = opponentLastSeen.toMillis ? opponentLastSeen.toMillis() : opponentLastSeen;
             const timeSince = Date.now() - lastSeenMillis;
 
+            // Grace period: Don't declare timeout victory/defeat in the first 5 seconds of the game
+            // (Wait for initial sync and first heartbeats to land)
+            const gameStartTime = currentState.startTime?.toMillis ? currentState.startTime.toMillis() : (currentState.startTime || 0);
+            const gameAge = Date.now() - gameStartTime;
+
             // Console log tracking
             if (timeSince > 2000) {
-                console.log(`[Heartbeat] Opponent last seen ${timeSince}ms ago`);
+                console.log(`[Heartbeat] Opponent last seen ${timeSince}ms ago (Game age: ${gameAge}ms)`);
             }
 
             // Connection Issue Warning (> 5s)
@@ -117,12 +122,13 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
                 setConnectionIssue(false);
             }
 
-            // Disconnect (> 10s)
-            if (timeSince > 10000) {
+            // Disconnect (> 10s) - ONLY if game is old enough
+            if (timeSince > 10000 && gameAge > 5000) {
                 console.error("[Heartbeat] Opponent timed out! Claiming victory.");
                 onGameUpdate({
                     status: 'finished',
-                    winner: userId
+                    winner: userId,
+                    winReason: 'disconnect'
                 });
             }
         }, 1000); // Check every 1s
@@ -450,6 +456,7 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
         if (myData.score + scoreToAdd >= WINNING_SCORE) {
             updates['status'] = 'finished';
             updates['winner'] = userId;
+            updates['winReason'] = 'target';
         }
 
         if (linesCount >= 3 && !isSolo) {
@@ -699,8 +706,8 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
                                     <h2 className="text-4xl font-black text-white mb-2">VICTORY</h2>
                                     <p className="text-cyan-400">
                                         {isSolo ? 'Target Reached!' : (
-                                            gameState.status === 'finished' && gameState.winner === userId
-                                                ? 'You Won!'
+                                            gameState.winReason === 'disconnect'
+                                                ? 'Opponent Disconnected'
                                                 : 'Target Reached!'
                                         )}
                                     </p>
@@ -709,7 +716,11 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
                                 <>
                                     <ShieldAlert className="w-16 h-16 text-red-500 mx-auto mb-4" />
                                     <h2 className="text-4xl font-black text-white mb-2">DEFEAT</h2>
-                                    <p className="text-slate-400">Opponent claimed the grid.</p>
+                                    <p className="text-slate-400">
+                                        {gameState.winReason === 'disconnect'
+                                            ? 'Disconnected: Your heartbeat timed out.'
+                                            : 'Opponent reached the target first.'}
+                                    </p>
                                 </>
                             )}
 
