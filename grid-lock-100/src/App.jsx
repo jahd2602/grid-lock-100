@@ -29,7 +29,9 @@ import {
   Target,
   WifiOff,
   Signal,
-  SignalLow
+  SignalLow,
+  Maximize,
+  Minimize
 } from 'lucide-react';
 
 // --- Firebase Config & Init ---
@@ -111,6 +113,7 @@ export default function App() {
   const [gameState, setGameState] = useState(null); // The full game state object
   const [gameStatus, setGameStatus] = useState('menu'); // menu, finding, playing, finished
   const [isSolo, setIsSolo] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // --- Auth & Init ---
   useEffect(() => {
@@ -124,6 +127,12 @@ export default function App() {
 
   // --- Solo Mode Logic ---
   const startSolo = () => {
+    // Attempt fullscreen
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => { });
+      setIsFullscreen(true);
+    }
+
     setIsSolo(true);
     const initialGrid = gridToString(createEmptyGrid());
     const initialState = {
@@ -160,6 +169,12 @@ export default function App() {
     if (!user) {
       console.log("findMatch: No user found, aborting.");
       return;
+    }
+
+    // Attempt fullscreen
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => { });
+      setIsFullscreen(true);
     }
 
     setIsSolo(false);
@@ -248,6 +263,15 @@ export default function App() {
     await signOut(auth);
     await signInAnonymously(auth);
     window.location.reload();
+  };
+
+  // --- Fullscreen Toggle ---
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(err => console.error(err));
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(err => console.error(err));
+    }
   };
 
   // --- Unified Update Handler ---
@@ -374,6 +398,8 @@ export default function App() {
           userId={user.uid}
           onGameUpdate={handleGameUpdate}
           isSolo={isSolo}
+          toggleFullscreen={toggleFullscreen}
+          isFullscreen={isFullscreen}
         />
       )}
     </div>
@@ -381,7 +407,7 @@ export default function App() {
 }
 
 // --- Active Game Component ---
-function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSolo }) {
+function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSolo, toggleFullscreen, isFullscreen }) {
   const opponentRole = playerRole === 'p1' ? 'p2' : 'p1';
   const myData = gameState[playerRole];
   const oppData = gameState[opponentRole];
@@ -777,35 +803,36 @@ function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSo
       ))}
 
       {/* --- HUD --- */}
-      <div className="flex-none p-4 flex justify-between items-end bg-slate-900 border-b border-slate-800 z-10">
+      <div className="flex-none flex items-end justify-between p-2 md:p-4 bg-slate-900 border-b border-slate-800 z-10 shrink-0">
+
         <div className="flex flex-col gap-1 w-1/3">
-          <div className="flex justify-between text-xs font-mono text-cyan-400">
+          <div className="flex justify-between text-[10px] md:text-xs font-mono text-cyan-400">
             <span>{isSolo ? 'SCORE' : 'YOU'}</span>
             <span>{Math.floor(myData.score)}/{WINNING_SCORE}</span>
           </div>
-          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-1.5 md:h-2 bg-slate-800 rounded-full overflow-hidden">
             <div className="h-full bg-cyan-500 transition-all duration-500" style={{ width: `${(myData.score / WINNING_SCORE) * 100}%` }}></div>
           </div>
         </div>
 
         <div className="flex flex-col items-center">
-          <div className="bg-slate-800 px-3 py-1 rounded text-xs font-mono text-slate-400 border border-slate-700">
-            TARGET: 100
+          <div className="bg-slate-800 px-2 py-0.5 md:px-3 md:py-1 rounded text-[10px] md:text-xs font-mono text-slate-400 border border-slate-700">
+            🎯: 100
           </div>
         </div>
 
         <div className="flex flex-col gap-1 w-1/3 text-right">
           {isSolo ? (
-            <div className="flex justify-end items-center gap-2 text-slate-500 text-xs font-mono h-full">
-              <Target className="w-4 h-4" /> SOLO MODE
+            <div className="flex justify-end items-center gap-2 text-slate-500 text-[10px] md:text-xs font-mono h-full">
+              <Target className="w-3 h-3 md:w-4 md:h-4" /> SOLO MODE
             </div>
           ) : (
             <>
-              <div className="flex justify-between text-xs font-mono text-fuchsia-400">
+              <div className="flex justify-between text-[10px] md:text-xs font-mono text-fuchsia-400">
                 <span>OPPONENT</span>
                 <span>{Math.floor(oppData.score)}/{WINNING_SCORE}</span>
               </div>
-              <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div className="h-1.5 md:h-2 bg-slate-800 rounded-full overflow-hidden">
                 <div className="h-full bg-fuchsia-500 transition-all duration-500" style={{ width: `${(oppData.score / WINNING_SCORE) * 100}%` }}></div>
               </div>
             </>
@@ -813,20 +840,28 @@ function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSo
         </div>
       </div>
 
-      {/* --- Spectator Zone (Top) --- */}
-      {!isSolo && (
-        <div className="flex-none p-4 flex justify-end relative">
-          <div className="bg-slate-900 p-2 rounded-lg border border-slate-700 shadow-xl opacity-80 relative"> {/* Removed scale-90 */}
+      {/* --- Spectator Zone & Controls (Top) --- */}
+      <div className="flex-none p-2 md:p-4 flex justify-between items-start relative shrink-0">
+
+        {/* Fullscreen config (Left aligned in this row) */}
+        <div>
+          <button onClick={toggleFullscreen} className="text-slate-500 hover:text-cyan-400 p-2 bg-slate-900/50 rounded-lg border border-slate-700/50 backdrop-blur-sm transition-colors">
+            {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+          </button>
+        </div>
+
+        {!isSolo && (
+          <div className="bg-slate-900 p-1 md:p-2 rounded-lg border border-slate-700 shadow-xl opacity-80 relative">
 
             {/* Connection Issue Overlay */}
             {connectionIssue && (
               <div className="absolute inset-0 z-20 bg-slate-950/80 flex flex-col items-center justify-center rounded-lg animate-pulse backdrop-blur-sm">
-                <SignalLow className="w-6 h-6 text-yellow-500 mb-1" /> {/* Reduced icon size */}
-                <span className="text-[9px] text-yellow-500 font-bold uppercase tracking-wider">Reconnecting</span> {/* Reduced text size */}
+                <SignalLow className="w-6 h-6 text-yellow-500 mb-1" />
+                <span className="text-[9px] text-yellow-500 font-bold uppercase tracking-wider">Reconnecting</span>
               </div>
             )}
 
-            <div className="grid grid-cols-8 gap-[1px] bg-slate-800 border border-slate-800 mb-2 w-[100px] h-[100px]"> {/* Reduced from 120px to 100px */}
+            <div className="grid grid-cols-8 gap-[1px] bg-slate-800 border border-slate-800 mb-1 md:mb-2 w-[80px] h-[80px] md:w-[100px] md:h-[100px]">
               {stringToGrid(oppData.gridStr).map((row, r) => (
                 row.map((cell, c) => (
                   <div key={`${r}-${c}`} className={`w-full h-full ${cell ? 'bg-fuchsia-500/80' : 'bg-slate-900'}`} />
@@ -834,19 +869,19 @@ function ActiveGame({ matchId, playerRole, gameState, userId, onGameUpdate, isSo
               ))}
             </div>
             {/* Opponent Tray Mini */}
-            <div className="flex justify-center gap-1 h-6"> {/* Reduced from h-8 to h-6 */}
+            <div className="flex justify-center gap-1 h-5 md:h-6">
               {oppData.pieces.map((p, i) => (
-                <div key={i} className="w-6 bg-slate-800/50 rounded flex items-center justify-center"> {/* Reduced from w-8 to w-6 */}
-                  {p && <div className="w-2 h-2 bg-fuchsia-500/50 rounded-sm" />} {/* Reduced from w-3 h-3 to w-2 h-2 */}
+                <div key={i} className="w-5 md:w-6 bg-slate-800/50 rounded flex items-center justify-center">
+                  {p && <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-fuchsia-500/50 rounded-sm" />}
                 </div>
               ))}
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* --- Main Player Zone (Center/Bottom) --- */}
-      <div className={`flex-1 flex flex-col items-center justify-center gap-6 relative ${isSolo ? 'pt-8' : ''}`}>
+      <div className={`flex-1 flex flex-col items-center justify-start md:justify-center gap-2 md:gap-6 relative overflow-y-auto pb-safe ${isSolo ? 'pt-4 md:pt-8' : ''}`}>
         {/* Game Over Overlay */}
         {gameState.winner && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur">
