@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { serverTimestamp } from 'firebase/firestore';
 import {
     Trophy,
@@ -40,10 +41,38 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
     const [clearingCells, setClearingCells] = useState(new Set()); // Set of "r-c" strings
     const [scoreParticles, setScoreParticles] = useState([]); // Array of {id, x, y, value}
     const [connectionIssue, setConnectionIssue] = useState(false);
+    const [rockets, setRockets] = useState([]); // { id, start: {x,y}, end: {x,y}, type: 'attack'|'defend' }
+    const [explosions, setExplosions] = useState([]); // { id, x, y }
 
     const gridRef = useRef(null);
+    const trayRefs = useRef([]);
+    const spectatorRef = useRef(null);
 
     // --- Heartbeat & Offline Detection ---
+    useEffect(() => {
+        const handleKeyPress = (e) => {
+            if (e.key.toLowerCase() === 'c' && import.meta.env.DEV) {
+                setLocalGrid(prev => {
+                    const newGrid = prev.map(row => [...row]);
+                    // Fill first 3 rows except for the last cell
+                    for (let r = 0; r < 3; r++) {
+                        for (let c = 0; c < GRID_SIZE - 1; c++) {
+                            newGrid[r][c] = 1;
+                        }
+                        newGrid[r][GRID_SIZE - 1] = 0;
+                    }
+                    return newGrid;
+                });
+                setFlash(true);
+                setTimeout(() => setFlash(false), 200);
+                console.log("Cheat activated: Rows prepped for clear!");
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyPress);
+        return () => window.removeEventListener('keydown', handleKeyPress);
+    }, []);
+
     useEffect(() => {
         if (isSolo || gameState.status !== 'playing') return;
 
@@ -94,15 +123,57 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
         if (myData.attackIncoming) {
             // Opponent sent an attack
             if (myData.attackIncoming.type === 'lock') {
-                const slot = Math.floor(Math.random() * 3);
-                setLockedSlots(prev => [...prev, slot]);
-                setFlash(true);
-                setTimeout(() => setFlash(false), 500);
+                const slotIndex = Math.floor(Math.random() * 3);
+                const expiresAt = Date.now() + (myData.attackIncoming.duration || 7000);
 
-                // Remove lock after duration
+                // Trigger Rocket from Spectator to Tray Slot
+                if (spectatorRef.current && trayRefs.current[slotIndex]) {
+                    const spectRect = spectatorRef.current.getBoundingClientRect();
+                    const trayRect = trayRefs.current[slotIndex].getBoundingClientRect();
+
+                    const startPos = {
+                        x: spectRect.left + spectRect.width / 2,
+                        y: spectRect.top + spectRect.height / 2
+                    };
+                    const endPos = {
+                        x: trayRect.left + trayRect.width / 2,
+                        y: trayRect.top + trayRect.height / 2
+                    };
+
+                    const dx = endPos.x - startPos.x;
+                    const dy = endPos.y - startPos.y;
+                    const rotation = (Math.atan2(dy, dx) * 180 / Math.PI) + 90;
+
+                    const rocketId = Date.now();
+                    setRockets(prev => [...prev, {
+                        id: rocketId,
+                        start: startPos,
+                        end: endPos,
+                        type: 'defense', // Coming AT me
+                        rotation
+                    }]);
+
+                    // Delay actual lock until rocket hits
+                    setTimeout(() => {
+                        setLockedSlots(prev => [...prev, { index: slotIndex, expiresAt }]);
+                        setFlash(true);
+                        setTimeout(() => setFlash(false), 500);
+
+                        // Explosion at tray
+                        setExplosions(prev => [...prev, { id: Date.now(), x: endPos.x, y: endPos.y }]);
+                        setTimeout(() => {
+                            setExplosions(prev => prev.filter(e => Date.now() - e.id < 500));
+                        }, 500);
+                    }, 800); // Orbit/Flight time
+                } else {
+                    // Fallback if refs not ready
+                    setLockedSlots(prev => [...prev, { index: slotIndex, expiresAt }]);
+                }
+
+                // Cleanup lock timer
                 setTimeout(() => {
-                    setLockedSlots(prev => prev.filter(s => s !== slot));
-                }, myData.attackIncoming.duration);
+                    setLockedSlots(prev => prev.filter(s => s.index !== slotIndex));
+                }, (myData.attackIncoming.duration || 7000) + 800);
             }
 
             // Clear the attack flag
@@ -111,6 +182,15 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
             });
         }
     }, [myData.attackIncoming, playerRole]);
+
+    // Lock Countdown Ticker
+    useEffect(() => {
+        if (lockedSlots.length === 0) return;
+        const interval = setInterval(() => {
+            setLockedSlots(prev => [...prev]); // Trigger re-render
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [lockedSlots.length]);
 
     // Handle Penalty Freeze
     useEffect(() => {
@@ -125,7 +205,7 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
     // --- Interaction Logic ---
 
     const handleDragStart = (e, piece, index) => {
-        if (frozen || lockedSlots.includes(index) || clearingCells.size > 0) return;
+        if (frozen || lockedSlots.some(s => s.index === index) || clearingCells.size > 0) return;
 
         // Support mouse or touch
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -363,6 +443,44 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
                 duration: 7000,
                 timestamp: Date.now()
             };
+
+            // TRIGGER ROCKET ANIMATION: From Board to Spectator
+            if (gridRef.current && spectatorRef.current) {
+                const gridRect = gridRef.current.getBoundingClientRect();
+                const spectRect = spectatorRef.current.getBoundingClientRect();
+
+                // Calculate center of cleared lines as start point
+                // Simplified: Start from center of grid
+                const startPos = {
+                    x: gridRect.left + gridRect.width / 2,
+                    y: gridRect.top + gridRect.height / 2
+                };
+                const endPos = {
+                    x: spectRect.left + spectRect.width / 2,
+                    y: spectRect.top + spectRect.height / 2
+                };
+
+                const dx = endPos.x - startPos.x;
+                const dy = endPos.y - startPos.y;
+                const rotation = (Math.atan2(dy, dx) * 180 / Math.PI) + 90;
+
+                const rocketId = Date.now();
+                setRockets(prev => [...prev, {
+                    id: rocketId,
+                    start: startPos,
+                    end: endPos,
+                    type: 'attack',
+                    rotation
+                }]);
+
+                // Explosion at opponent's mini-grid
+                setTimeout(() => {
+                    setExplosions(prev => [...prev, { id: Date.now(), x: endPos.x, y: endPos.y }]);
+                    setTimeout(() => {
+                        setExplosions(prev => prev.filter(e => Date.now() - e.id < 500));
+                    }, 500);
+                }, 800);
+            }
         }
 
         if (!canMove) {
@@ -410,6 +528,65 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
             onMouseUp={handleDragEnd}
             onTouchEnd={handleDragEnd}
         >
+            <AnimatePresence>
+                {rockets.map(rocket => (
+                    <motion.div
+                        key={rocket.id}
+                        initial={{ left: rocket.start.x, top: rocket.start.y, opacity: 0, scale: 0.5, rotate: 0 }}
+                        animate={{
+                            left: rocket.end.x,
+                            top: rocket.end.y,
+                            opacity: 1,
+                            scale: 1,
+                            rotate: rocket.rotation
+                        }}
+                        exit={{ opacity: 0, scale: 1.5 }}
+                        transition={{ duration: 0.8, ease: "easeIn" }}
+                        onAnimationComplete={() => {
+                            setRockets(prev => prev.filter(r => r.id !== rocket.id));
+                        }}
+                        className="fixed z-[150] pointer-events-none"
+                        style={{ transform: 'translate(-50%, -50%)' }}
+                    >
+                        <div className="relative">
+                            {/* Rocket Body */}
+                            <div className="w-6 h-10 bg-slate-300 rounded-t-full shadow-lg border-x-2 border-slate-400 relative overflow-hidden">
+                                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+                                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-2 h-2 bg-cyan-400 rounded-full shadow-[0_0_5px_cyan]" />
+                            </div>
+
+                            {/* Fins */}
+                            <div className="absolute -bottom-1 -left-2 w-3 h-4 bg-red-500 rounded-bl-lg border-l border-red-600" />
+                            <div className="absolute -bottom-1 -right-2 w-3 h-4 bg-red-500 rounded-br-lg border-r border-red-600" />
+
+                            {/* Thruster Flame */}
+                            <motion.div
+                                animate={{
+                                    height: [15, 25, 15],
+                                    opacity: [0.9, 1, 0.9],
+                                    scaleX: [0.8, 1.2, 0.8]
+                                }}
+                                transition={{ repeat: Infinity, duration: 0.15 }}
+                                className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-4 bg-gradient-to-t from-transparent via-orange-500 to-yellow-400 rounded-b-full shadow-[0_0_20px_#f97316]"
+                            />
+                        </div>
+                    </motion.div>
+                ))}
+
+                {explosions.map(exp => (
+                    <motion.div
+                        key={exp.id}
+                        initial={{ left: exp.x, top: exp.y, scale: 0, opacity: 1 }}
+                        animate={{ scale: 3, opacity: 0 }}
+                        transition={{ duration: 0.5 }}
+                        className="fixed z-[160] w-12 h-12 rounded-full bg-orange-500 pointer-events-none"
+                        style={{ transform: 'translate(-50%, -50%)' }}
+                    >
+                        <div className="absolute inset-0 rounded-full bg-yellow-400 blur-sm" />
+                        <div className="absolute inset-2 rounded-full bg-white blur-xs" />
+                    </motion.div>
+                ))}
+            </AnimatePresence>
             {flash && <div className="absolute inset-0 bg-red-500/20 z-50 pointer-events-none animate-pulse" />}
 
             {/* Floating Score Particles */}
@@ -472,7 +649,7 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
                 </div>
 
                 {!isSolo && (
-                    <div className="bg-slate-900 p-1 md:p-2 rounded-lg border border-slate-700 shadow-xl opacity-80 relative">
+                    <div ref={spectatorRef} className="bg-slate-900 p-1 md:p-2 rounded-lg border border-slate-700 shadow-xl opacity-80 relative">
 
                         {/* Connection Issue Overlay */}
                         {connectionIssue && (
@@ -577,20 +754,28 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
                 {/* Tray */}
                 <div className="w-full max-w-md px-4 pb-8 flex justify-center gap-4 h-24">
                     {localPieces.map((piece, i) => {
-                        const isLocked = lockedSlots.includes(i);
+                        const lockInfo = lockedSlots.find(s => s.index === i);
+                        const isLocked = !!lockInfo;
                         const isDragging = dragPiece && dragPiece.index === i;
+                        const secondsLeft = lockInfo ? Math.max(0, Math.ceil((lockInfo.expiresAt - Date.now()) / 1000)) : 0;
 
                         return (
                             <div
                                 key={i}
+                                ref={el => trayRefs.current[i] = el}
                                 className={`flex-1 h-24 bg-slate-800/50 rounded-lg border-2 border-slate-800 flex items-center justify-center relative ${isLocked ? 'border-red-500/50 bg-red-900/10' : ''}`}
                                 onMouseDown={(e) => piece && !isLocked && handleDragStart(e, piece, i)}
                                 onTouchStart={(e) => piece && !isLocked && handleDragStart(e, piece, i)}
                             >
-                                {isLocked && <Lock className="w-8 h-8 text-red-500 absolute z-20 animate-lock" />}
+                                {isLocked && (
+                                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/40 rounded-lg animate-in fade-in duration-300">
+                                        <Lock className="w-8 h-8 text-red-500 animate-lock" />
+                                        <span className="text-white text-xs font-black mt-1 tabular-nums">{secondsLeft}s</span>
+                                    </div>
+                                )}
 
                                 {piece && !isDragging && (
-                                    <div className={`grid gap-[2px] pointer-events-none opacity-${isLocked ? '20' : '100'}`} style={{
+                                    <div className={`grid gap-[2px] pointer-events-none transition-all duration-500 ${isLocked ? 'opacity-30 blur-md grayscale scale-90' : 'opacity-100'}`} style={{
                                         gridTemplateColumns: `repeat(${piece.shape[0].length}, 1fr)`
                                     }}>
                                         {piece.shape.map((row, r) => (
