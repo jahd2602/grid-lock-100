@@ -107,6 +107,26 @@ export default function App() {
   const [gameStatus, setGameStatus] = useState('menu'); // menu, finding, playing, finished
   const [isSolo, setIsSolo] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showFindingHint, setShowFindingHint] = useState(false);
+
+  // --- Matchmaking Hint Timer ---
+  useEffect(() => {
+    let timer;
+    if (gameStatus === 'finding') {
+      timer = setTimeout(() => {
+        setShowFindingHint(true);
+      }, 3000);
+    } else {
+      setShowFindingHint(false);
+    }
+    return () => clearTimeout(timer);
+  }, [gameStatus]);
+
+  const cancelFinding = () => {
+    setGameStatus('menu');
+    setMatchId(null);
+    setGameState(null);
+  };
 
   // --- Auth & Init ---
   useEffect(() => {
@@ -380,12 +400,27 @@ export default function App() {
 
       {/* Waiting Screen */}
       {gameStatus === 'finding' && (
-        <div className="flex flex-col items-center justify-center h-screen space-y-6">
+        <div className="flex flex-col items-center justify-center h-screen space-y-6 p-6">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin"></div>
             <Users className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-cyan-500" />
           </div>
-          <p className="text-slate-400 animate-pulse">Scanning network for opponent...</p>
+          <div className="text-center space-y-2">
+            <p className="text-slate-400 animate-pulse">Scanning network for opponent...</p>
+            {showFindingHint && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                <p className="text-cyan-500/80 text-sm font-medium">
+                  HINT: Ask a friend to open this game on their device and click Multiplayer too!
+                </p>
+                <button
+                  onClick={cancelFinding}
+                  className="mt-6 px-6 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-full text-xs font-bold transition-all border border-slate-700"
+                >
+                  CANCEL SEARCH
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

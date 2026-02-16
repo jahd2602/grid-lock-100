@@ -81,7 +81,7 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
             onGameUpdate({
                 [`${playerRole}.lastSeen`]: serverTimestamp()
             });
-        }, 1000); // Send every 1s
+        }, 500); // Send every 500ms
 
         // 2. Check Opponent Status
         const checkInterval = setInterval(() => {
@@ -110,7 +110,7 @@ export default function ActiveGame({ matchId, playerRole, gameState, userId, onG
                     winner: userId
                 });
             }
-        }, 500); // Check faster (every 500ms) for responsiveness
+        }, 1000); // Check every 1s
 
         return () => {
             clearInterval(heartbeatInterval);
